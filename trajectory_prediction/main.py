@@ -334,7 +334,11 @@ def train(epoch):
         else:
             loss.backward()
             loss_batch += loss.item()
-        
+            
+        r_loss_batch += r_loss.item()
+        m_loss_batch += m_loss.item()
+
+
         if batch_idx % args.batch_size + 1 == args.batch_size or batch_idx + 1 == loader_len:
             if args.clip_grad is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
@@ -350,21 +354,22 @@ def train(epoch):
     metrics['train_loss'].append(loss_batch / loader_len)
 
 def valid(epoch):
-    global metrics, model
-    model.train()
+    global metrics, constant_metrics, model
+    model.eval()
     loss_batch = 0.
     r_loss_batch, m_loss_batch = 0., 0.
-    loader_len = len(train_loader)
+    loader_len = len(val_loader)
 
     progressbar = tqdm(range(loader_len))
-    progressbar.set_description('Train Epoch: {0} Loss: {1:.8f}'.format(epoch, 0))
+    progressbar.set_description('Valid Epoch: {0} Loss: {1:.8f}'.format(epoch, 0))
 
-    for batch_idx, batch in enumerate(train_loader):
-
+    for batch_idx, batch in enumerate(val_loader):
         S_obs, S_trgt = [tensor.cuda() for tensor in batch[-2:]]
-        
+
+        # Run Graph-TERN model
         V_init, V_pred, V_refi, valid_mask = model(S_obs)
 
+        # Loss calculation
         r_loss = gaussian_mixture_loss(V_init, S_trgt[:, 1], args.n_ways)
         m_loss = mse_loss(V_refi, S_trgt[:, 0], valid_mask, training=False)
         loss = r_loss + m_loss
@@ -374,21 +379,21 @@ def valid(epoch):
         m_loss_batch += m_loss.item()
 
         if batch_idx % args.batch_size + 1 == args.batch_size or batch_idx + 1 == loader_len:
-            
             r_loss_batch = 0.
             m_loss_batch = 0.
 
-        progressbar.set_description('Train Epoch: {0} Loss: {1:.8f}'.format(epoch, loss.item() / args.batch_size))
+        progressbar.set_description('Valid Epoch: {0} Loss: {1:.8f}'.format(epoch, loss.item() / args.batch_size))
         progressbar.update(1)
 
     progressbar.close()
     metrics['val_loss'].append(loss_batch / loader_len)
-    
+
     # Save model
     if metrics['val_loss'][-1] < constant_metrics['min_val_loss']:
         constant_metrics['min_val_loss'] = metrics['val_loss'][-1]
         constant_metrics['min_val_epoch'] = epoch
         torch.save(model.state_dict(), checkpoint_dir + args.dataset + '_best.pth')
+
 
 def main():
     for epoch in range(args.num_epochs):

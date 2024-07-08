@@ -75,7 +75,7 @@ class Dataload(Dataset):
                 
                 _non_linear_ped = []
                 N_index = 0
-                
+                # N_index = num_peds_considered
                 for _ , people_id in enumerate(people_data):
                     scene_people_xy = scene_data[scene_data[:, 1] == people_id, :]
                     #scene_data[:, 1] = each scene_people id
@@ -86,11 +86,10 @@ class Dataload(Dataset):
                     if time_end - time_front != self.seq_len:
                         continue
                     scene_people_xy = np.transpose(scene_people_xy[:, 2:])
-                    
+                
                     rel_scene_people = np.zeros(scene_people_xy.shape)
                     rel_scene_people[:, 1:] = scene_people_xy[:, 1:] - scene_people_xy[:, :-1]
-                    #rel_scene_people[:, 1:] = 특정 인물의 위치변환
-
+                    #rel_scene_people[:, 1:] = 특정 인물의 위치변환 (속도)
                     scene[N_index, :, time_front:time_end] = scene_people_xy
                     scene_rel[N_index, :, time_front:time_end] = rel_scene_people
                     _non_linear_ped.append(poly_fit(scene_people_xy, pred_len, threshold))
@@ -129,6 +128,7 @@ class Dataload(Dataset):
 
         for i in range(len(self.seq_start_end)):
             start, end = self.seq_start_end[i]
+            #obs_traj
             s_obs = torch.stack([self.obs_traj[start:end, :], self.obs_traj_rel[start:end, :]], dim=0).permute(0, 3, 1, 2)
             self.S_obs.append(s_obs.clone())
             s_trgt = torch.stack([self.pred_traj[start:end, :], self.pred_traj_rel[start:end, :]], dim=0).permute(0, 3, 1, 2)

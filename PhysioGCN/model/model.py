@@ -12,7 +12,7 @@ def generate_adjacency_matrix(V):
     A = (temp - temp.transpose(3, 4)).norm(p=2, dim=5)
     A_inv = 1. / A
     A_inv[A == 0] = 0
-    # [A_dist, A_disp, A_dist_inv, A_disp_inv]
+    # [A_dist, A_disp, A_acc, A_dist_inv, A_disp_inv, A_acc]
     return torch.cat([A, A_inv], dim=1)
 
 
@@ -44,9 +44,9 @@ class graph_tern(nn.Module):
 
         # Control Point Prediction
         self.tp_mrgcns = nn.ModuleList()
-        self.tp_mrgcns.append(st_mrgcn(in_channels=input_feat, out_channels=hidden_feat, kernel_size=(kernel_size, seq_len), relation=4))
+        self.tp_mrgcns.append(st_mrgcn(in_channels=input_feat, out_channels=hidden_feat, kernel_size=(kernel_size, seq_len), relation=6))
         for j in range(1, self.n_epgcn):
-            self.tp_mrgcns.append(st_mrgcn(in_channels=hidden_feat, out_channels=hidden_feat, kernel_size=(kernel_size, seq_len), relation=4))
+            self.tp_mrgcns.append(st_mrgcn(in_channels=hidden_feat, out_channels=hidden_feat, kernel_size=(kernel_size, seq_len), relation=6))
 
         self.tpcnns = nn.ModuleList()
         self.tpcnns.append(epcnn(obs_seq_len=seq_len, pred_seq_len=self.n_gmms, in_channels=hidden_feat, out_channels=hidden_feat))
@@ -56,9 +56,9 @@ class graph_tern(nn.Module):
 
         # Trajectory Refinement
         self.st_mrgcns = nn.ModuleList()
-        self.st_mrgcns.append(st_mrgcn(in_channels=input_feat, out_channels=hidden_feat, kernel_size=(kernel_size, total_seq_len), relation=4))
+        self.st_mrgcns.append(st_mrgcn(in_channels=input_feat, out_channels=hidden_feat, kernel_size=(kernel_size, total_seq_len), relation=6))
         for j in range(1, self.n_trgcn):
-            self.st_mrgcns.append(st_mrgcn(in_channels=hidden_feat, out_channels=hidden_feat, kernel_size=(kernel_size, total_seq_len), relation=4))
+            self.st_mrgcns.append(st_mrgcn(in_channels=hidden_feat, out_channels=hidden_feat, kernel_size=(kernel_size, total_seq_len), relation=6))
 
         self.trcnns = nn.ModuleList()
         for j in range(0, self.n_trcnn-1):
@@ -76,15 +76,20 @@ class graph_tern(nn.Module):
         A_obs = generate_adjacency_matrix(S_obs).detach()
 
         # Graph Control Point Prediction
+        
         V_obs_abs = S_obs[:, 0]
         V_obs_rel = S_obs[:, 1]
+        V_obs_acc = S_obs[:, 2]
+        
+        V_obs_input = S_obs[:, 1] + S_obs[:, 2]/2
 
         # NTVC -> NCTV
-        V_init = V_obs_rel.permute(0, 3, 1, 2).contiguous()
-
+        V_init_input = V_obs_input.permute(0, 3, 1, 2).contiguous()
+        V_init = V_init_input
+        #Node Feature Matrix인 X와 Adjacency Matrix 인 A
         for k in range(self.n_epgcn):
             V_init, A_obs = self.tp_mrgcns[k](V_init, A_obs)
-
+        
         # NCTV -> NTCV
         V_init = V_init.permute(0, 2, 1, 3).contiguous()
 
@@ -101,12 +106,20 @@ class graph_tern(nn.Module):
         # Guided point sampling
         Gamma = V_obs_rel.mean(dim=1).norm(p=2, dim=-1).squeeze(dim=0) / self.gamma
         Gamma /= self.pred_seq_len  # code optimization for linear interpolation (pre-division)
+        
+        Gamma_acc = V_obs_acc.mean(dim=1).norm(p=2, dim=-1).squeeze(dim=0) / self.gamma
+        Gamma_acc /= self.pred_seq_len  # code optimization for linear interpolation (pre-division)
 
         if S_trgt is not None:
             # Training phase
             # GT endpoint (NTVC ->  NVC)
             V_trgt_rel = S_trgt[:, 1]
             V_dest_rel = V_trgt_rel.mean(dim=1)
+            #실제 평균 속도
+
+            V_trgt_acc = S_trgt[:, 2]
+            V_dest_acc = V_trgt_acc.mean(dim=1)
+            #평균 가속도
 
             # Endpoint sampling & classify positive / negative set
             # NMV(C*K) (C: [mu_x, mu_y, std_x, std_y, pi])
@@ -120,19 +133,24 @@ class graph_tern(nn.Module):
                 gmm = MixtureSameFamily(mix, comp)
                 dest_s_list.append(gmm.sample((self.n_smpl,)).squeeze(dim=1))  # NVC
             dest_s_list = torch.stack(dest_s_list, dim=3)
+            #torch.Size([20, 5, 2, 3])
             dest_s = dest_s_list.mean(dim=3)
-            valid_mask_s = (dest_s - V_dest_rel).norm(p=2, dim=-1).le(Gamma).type(torch.float)
-
+            #torch.Size([20, 5, 2])
+            valid_mask_s = (dest_s - V_dest_rel).norm(p=2, dim=-1).le(Gamma + Gamma_acc/2).type(torch.float)
+            #정답과 가까운 목적지인지 확인
             # Guided endpoint sampling
-            eps_r = torch.rand(self.n_smpl, V_dest_rel.size(1), device='cuda') * Gamma  # NV
+            eps_r = torch.rand(self.n_smpl, V_dest_rel.size(1), device='cuda') * (Gamma + Gamma_acc/2)  # NV
             eps_t = torch.rand(self.n_smpl, V_dest_rel.size(1), device='cuda')  # NV
             eps_x = eps_r * eps_t.cos()
             eps_y = eps_r * eps_t.sin()
             dest_g = V_dest_rel + torch.stack([eps_x, eps_y], dim=-1)
+            #원안에 정답 샘플 만들기
+            #torch.Size([20, 5, 2])
             valid_mask_g = torch.ones(self.n_smpl, V_dest_rel.size(1), device='cuda')
 
             # Concatenate all samples
             endpoint_set = torch.cat([dest_s, dest_g], dim=0)
+            #torch.Size([40, 5, 2])
             valid_mask = torch.cat([valid_mask_s, valid_mask_g], dim=0)
         elif pruning is None:
             # Validation phase
@@ -206,17 +224,25 @@ class graph_tern(nn.Module):
         # Initial trajectory prediction
         # Linear interpolation NVC -> NTVC
         V_pred = endpoint_set.unsqueeze(dim=1).repeat_interleave(repeats=self.pred_seq_len, dim=1)
+        #torch.Size([40, 12, 2, 2])
+        Acc_pred = torch.zeros(V_pred.shape, device='cuda')
+        Acc_pred[:, 1:, :, :] = V_pred[:, 1:, :, :] - V_pred[:, :-1, :, :]
         V_pred_abs = (V_pred.cumsum(dim=1) + V_obs_abs.squeeze(dim=0)[-1, :, :]).detach().clone()
+        #torch.Size([40, 12, v, 2])
 
         # repeat to sampled times (batch size)
-        V_obs_rept = V_obs_rel.repeat_interleave(V_pred.size(0), dim=0)
+        V_obs_rept = V_obs_input.repeat_interleave(V_pred.size(0), dim=0)
+        #torch.Size([40, 8, v, 2])
         A_obs = A_obs.repeat_interleave(V_pred.size(0), dim=0)
+        #torch.Size([40, 6, 8, v, 32])
 
         # Graph Trajectory Refinement
         # make adjacency matrix for predicted 12 frames (will be iteratively change)
-        A_pred = generate_adjacency_matrix(torch.stack([V_pred_abs, V_pred], dim=1))
-
+        A_pred = generate_adjacency_matrix(torch.stack([V_pred_abs, V_pred, Acc_pred], dim=1))
+        #A_pred = generate_adjacency_matrix(torch.stack([V_pred_abs, V_pred, Acc_pred], dim=1))
+        #torch.Size([40, 4, 12, v, 32])
         # concatenate to make full 20 frame sequences
+        
         V = torch.cat([V_obs_rept, V_pred], dim=1).detach()
         A = torch.cat([A_obs, A_pred], dim=2).detach()
 

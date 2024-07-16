@@ -333,6 +333,8 @@ def train(epoch):
             optimizer.zero_grad()
 
         S_obs, S_trgt = [tensor.cuda() for tensor in batch[-2:]]
+        #  S_obs = torch.Size([1, 3, 8, 6, 2])
+        #  S_trgt = torch.Size([1, 3, 12, 6, 2])
         
         # Data augmentation
         aug = True

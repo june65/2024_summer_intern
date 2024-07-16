@@ -81,7 +81,7 @@ class graph_tern(nn.Module):
         V_obs_rel = S_obs[:, 1]
         V_obs_acc = S_obs[:, 2]
         
-        V_obs_input = S_obs[:, 1] + S_obs[:, 2]/2
+        V_obs_input = S_obs[:, 1] # + S_obs[:, 2]/2
 
         # NTVC -> NCTV
         V_init_input = V_obs_input.permute(0, 3, 1, 2).contiguous()
@@ -136,10 +136,10 @@ class graph_tern(nn.Module):
             #torch.Size([20, 5, 2, 3])
             dest_s = dest_s_list.mean(dim=3)
             #torch.Size([20, 5, 2])
-            valid_mask_s = (dest_s - V_dest_rel).norm(p=2, dim=-1).le(Gamma + Gamma_acc/2).type(torch.float)
+            valid_mask_s = (dest_s - V_dest_rel).norm(p=2, dim=-1).le(Gamma).type(torch.float)
             #정답과 가까운 목적지인지 확인
             # Guided endpoint sampling
-            eps_r = torch.rand(self.n_smpl, V_dest_rel.size(1), device='cuda') * (Gamma + Gamma_acc/2)  # NV
+            eps_r = torch.rand(self.n_smpl, V_dest_rel.size(1), device='cuda') * (Gamma)  # NV
             eps_t = torch.rand(self.n_smpl, V_dest_rel.size(1), device='cuda')  # NV
             eps_x = eps_r * eps_t.cos()
             eps_y = eps_r * eps_t.sin()
@@ -224,7 +224,7 @@ class graph_tern(nn.Module):
         # Initial trajectory prediction
         # Linear interpolation NVC -> NTVC
         V_pred = endpoint_set.unsqueeze(dim=1).repeat_interleave(repeats=self.pred_seq_len, dim=1)
-        #torch.Size([40, 12, 2, 2])
+        #torch.Size([40, pred_seq, v, c])
         Acc_pred = torch.zeros(V_pred.shape, device='cuda')
         Acc_pred[:, 1:, :, :] = V_pred[:, 1:, :, :] - V_pred[:, :-1, :, :]
         V_pred_abs = (V_pred.cumsum(dim=1) + V_obs_abs.squeeze(dim=0)[-1, :, :]).detach().clone()
@@ -232,7 +232,7 @@ class graph_tern(nn.Module):
 
         # repeat to sampled times (batch size)
         V_obs_rept = V_obs_input.repeat_interleave(V_pred.size(0), dim=0)
-        #torch.Size([40, 8, v, 2])
+        #torch.Size([sample, obs_seq, v, c])
         A_obs = A_obs.repeat_interleave(V_pred.size(0), dim=0)
         #torch.Size([40, 6, 8, v, 32])
 

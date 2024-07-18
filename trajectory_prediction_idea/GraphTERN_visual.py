@@ -11,7 +11,7 @@ import random
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
-from model import *
+from GraphTERN_model import *
 from tqdm import tqdm
 from pathlib import Path
 

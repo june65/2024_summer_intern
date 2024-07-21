@@ -11,7 +11,6 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from model import *
 from torch.distributions import Categorical, Normal, Independent, MixtureSameFamily
-import matplotlib.pyplot as plt
 
 
 def poly_fit(traj, traj_len, threshold):
@@ -53,7 +52,6 @@ class Dataload(Dataset):
         num_peds_in_seq = []
         seq_list = []
         seq_list_rel = []
-        seq_list_acc = []
         loss_mask_list = []
         non_linear_ped = []
 
@@ -73,7 +71,6 @@ class Dataload(Dataset):
 
                 scene = np.zeros((len(people_data), 2, self.seq_len))
                 scene_rel = np.zeros((len(people_data), 2, self.seq_len))
-                scene_acc = np.zeros((len(people_data), 2, self.seq_len))
                 scene_loss_mask = np.zeros((len(people_data), self.seq_len))
                 
                 _non_linear_ped = []
@@ -93,15 +90,8 @@ class Dataload(Dataset):
                     rel_scene_people = np.zeros(scene_people_xy.shape)
                     rel_scene_people[:, 1:] = scene_people_xy[:, 1:] - scene_people_xy[:, :-1]
                     #rel_scene_people[:, 1:] = 특정 인물의 위치변환 (속도)
-
-                    ###PHYSIOGCN###
-                    acc_scene_people = np.zeros(scene_people_xy.shape)
-                    acc_scene_people[:, 1:] = rel_scene_people[:, 1:] - rel_scene_people[:, :-1]
-                    ###PHYSIOGCN###
-
                     scene[N_index, :, time_front:time_end] = scene_people_xy
                     scene_rel[N_index, :, time_front:time_end] = rel_scene_people
-                    scene_acc[N_index, :, time_front:time_end] = rel_scene_people
                     _non_linear_ped.append(poly_fit(scene_people_xy, pred_len, threshold))
                     
                     scene_loss_mask[N_index, time_front:time_end] = 1
@@ -113,13 +103,11 @@ class Dataload(Dataset):
                     loss_mask_list.append(scene_loss_mask[:N_index])
                     seq_list.append(scene[:N_index])
                     seq_list_rel.append(scene_rel[:N_index])
-                    seq_list_acc.append(scene_rel[:N_index])
         
         self.num_seq = len(seq_list)
         #print(seq_list)
         seq_list = np.concatenate(seq_list, axis=0)
         seq_list_rel = np.concatenate(seq_list_rel, axis=0)
-        seq_list_acc = np.concatenate(seq_list_acc, axis=0)
         loss_mask_list = np.concatenate(loss_mask_list, axis=0)
         non_linear_ped = np.asarray(non_linear_ped)
 
@@ -127,8 +115,6 @@ class Dataload(Dataset):
         self.pred_traj = torch.from_numpy(seq_list[:, :, self.obs_len:]).type(torch.float)
         self.obs_traj_rel = torch.from_numpy(seq_list_rel[:, :, :self.obs_len]).type(torch.float)
         self.pred_traj_rel = torch.from_numpy(seq_list_rel[:, :, self.obs_len:]).type(torch.float)
-        self.obs_traj_acc = torch.from_numpy(seq_list_acc[:, :, :self.obs_len]).type(torch.float)
-        self.pred_traj_acc = torch.from_numpy(seq_list_acc[:, :, self.obs_len:]).type(torch.float)
         self.loss_mask = torch.from_numpy(loss_mask_list).type(torch.float)
         self.non_linear_ped = torch.from_numpy(non_linear_ped).type(torch.float)
         cum_start_idx = [0] + np.cumsum(num_peds_in_seq).tolist()
@@ -143,9 +129,9 @@ class Dataload(Dataset):
         for i in range(len(self.seq_start_end)):
             start, end = self.seq_start_end[i]
             #obs_traj
-            s_obs = torch.stack([self.obs_traj[start:end, :], self.obs_traj_rel[start:end, :],self.obs_traj_acc[start:end, :]], dim=0).permute(0, 3, 1, 2)
+            s_obs = torch.stack([self.obs_traj[start:end, :], self.obs_traj_rel[start:end, :]], dim=0).permute(0, 3, 1, 2)
             self.S_obs.append(s_obs.clone())
-            s_trgt = torch.stack([self.pred_traj[start:end, :], self.pred_traj_rel[start:end, :],self.pred_traj_acc[start:end, :]], dim=0).permute(0, 3, 1, 2)
+            s_trgt = torch.stack([self.pred_traj[start:end, :], self.pred_traj_rel[start:end, :]], dim=0).permute(0, 3, 1, 2)
             self.S_trgt.append(s_trgt.clone())
             pbar.update(1)
         pbar.close()
@@ -159,7 +145,6 @@ class Dataload(Dataset):
         out = [
             self.obs_traj[start:end, :], self.pred_traj[start:end, :],
             self.obs_traj_rel[start:end, :], self.pred_traj_rel[start:end, :],
-            self.obs_traj_acc[start:end, :], self.pred_traj_acc[start:end, :],
             self.non_linear_ped[start:end], self.loss_mask[start:end, :],
             self.S_obs[index], self.S_trgt[index]
         ]
@@ -277,7 +262,7 @@ parser.add_argument('--pred_seq_len', type=int, default=12)
 
 # Training parameters
 parser.add_argument('--batch_size', type=int, default=128, help='Mini batch size')
-parser.add_argument('--num_epochs', type=int, default=1024, help='Number of epochs')
+parser.add_argument('--num_epochs', type=int, default=512, help='Number of epochs')
 parser.add_argument('--clip_grad', type=float, default=None, help='Gradient clipping')
 parser.add_argument('--lr', type=float, default=0.0001, help='Learning rate')
 parser.add_argument('--lr_sh_rate', type=int, default=128, help='Number of steps to drop the lr')
@@ -333,8 +318,6 @@ def train(epoch):
             optimizer.zero_grad()
 
         S_obs, S_trgt = [tensor.cuda() for tensor in batch[-2:]]
-        #  S_obs = torch.Size([1, 3, 8, 6, 2])
-        #  S_trgt = torch.Size([1, 3, 12, 6, 2])
         
         # Data augmentation
         aug = True
@@ -432,15 +415,6 @@ def main():
         with open(checkpoint_dir + 'constant_metrics.pkl', 'wb') as f:
             pickle.dump(constant_metrics, f)
 
-    plt.figure(figsize=(10, 5))
-    plt.plot(metrics['train_loss'], label='Train Loss')
-    plt.plot(metrics['val_loss'], label='Validation Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training and Validation Loss over Epochs')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
 
 if __name__ == "__main__":
     main()

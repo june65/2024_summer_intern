@@ -166,12 +166,13 @@ parser.add_argument('--n_samples', type=int, default=20, help='Number of samples
 test_args = parser.parse_args()
 
 # Get arguments for training
+
 checkpoint_dir = './checkpoint/' + test_args.tag + '/'
 
 args_path = checkpoint_dir + '/args.pkl'
 with open(args_path, 'rb') as f:
     args = pickle.load(f)
-
+    
 dataset_path = './datasets/' + args.dataset + '/'
 model_path = checkpoint_dir + args.dataset + '_best.pth'
 

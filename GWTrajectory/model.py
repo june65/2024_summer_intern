@@ -120,7 +120,7 @@ class YNetDecoder(nn.Module):
 
 
 class YNetTorch(nn.Module):
-	def __init__(self, obs_len, pred_len, segmentation_model_fp, use_features_only=False, semantic_classes=6,
+	def __init__(self, obs_len, pred_len, segmentation_model_fp, use_features_only=False, semantic_classes=8,
 				 encoder_channels=[], decoder_channels=[], waypoints=1):
 		"""
 		Complete Y-net Architecture including semantic segmentation backbone, heatmap embedding and ConvPredictor
@@ -136,7 +136,7 @@ class YNetTorch(nn.Module):
 		super(YNetTorch, self).__init__()
 
 
-		self.encoder = YNetEncoder(in_channels=obs_len, channels=encoder_channels)
+		self.encoder = YNetEncoder(in_channels=semantic_classes + obs_len, channels=encoder_channels)
 		
 
 		self.goal_decoder = YNetDecoder(encoder_channels, decoder_channels, output_len=pred_len)

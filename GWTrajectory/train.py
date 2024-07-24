@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
-from utils.image_utils import get_patch, image2world
+from utils.image_utils import get_patch, image2world, create_gaussian_map, combine_gaussian_maps
+import matplotlib.pyplot as plt
 
 def train(model, train_loader, train_images, e, obs_len, pred_len, batch_size, params, gt_template, device, input_template, optimizer, criterion, dataset_name, homo_mat):
 	"""
@@ -41,27 +42,54 @@ def train(model, train_loader, train_images, e, obs_len, pred_len, batch_size, p
 		trajectory_trgt = trajectory_trgt.permute(1, 0, 2).contiguous()
 
 		for i in range(0, len(trajectory), batch_size):
-			
 			if e >= params['unfreeze']:
 				scene_image = train_images[scene].to(device).unsqueeze(0)
 
 			# Create Heatmaps for past and ground-truth future trajectories
 			_, _, H, W = scene_image.shape  # image shape
 
-			observed = trajectory[i:i+batch_size, :, :].reshape(-1, 2).cpu().numpy()
+			gaussian_maps = []
+			for j in range(len(trajectory)):
+				lengths =((trajectory[i,:,0] - trajectory[j,:,0])**2 + (trajectory[i,:,1] - trajectory[j,:,1])**2).sqrt()
+				length = lengths.mean()
+				if j == i:
+					gaussian_maps.append([])
+				elif length< 20:
+					gaussian_maps.append([])
+				observed = trajectory[j, :, :].reshape(-1, 2).cpu().numpy()
+				gaussian_map = create_gaussian_map(observed, H, W)
+				gaussian_maps.append(gaussian_map)
+			combined_gaussian_maps = []	
+
+			for k in range(obs_len):
+				combined_gaussian_map = combine_gaussian_maps([gaussian_maps[j][k] for j in range(len(trajectory)) if len(gaussian_maps[j]) != 0], H, W)
+				combined_gaussian_maps.append(combined_gaussian_map)
+
+			#combined_gaussian_maps = combine_gaussian_maps(combined_gaussian_maps, H, W)
+			
+			combined_gaussian_maps = torch.tensor(combined_gaussian_maps).reshape([-1, obs_len, H, W])
+			combined_gaussian_maps = combined_gaussian_maps.float()
+			combined_gaussian_maps = combined_gaussian_maps.to(device)
+			'''	
+			selected_gaussian = combined_gaussian_maps[0, 0].cpu().numpy()
+			plt.imshow(selected_gaussian, cmap='hot', interpolation='nearest')
+			plt.title(f'Gaussian Map')
+			plt.colorbar()
+			plt.show()
+			'''
+			observed = trajectory[i, :, :].reshape(-1, 2).cpu().numpy()
 			observed_map = get_patch(input_template, observed, H, W)
 			observed_map = torch.stack(observed_map).reshape([-1, obs_len, H, W])
 
-			gt_future = trajectory_trgt[i:i + batch_size, :].to(device)
+			gt_future = trajectory_trgt[i].unsqueeze(0).to(device)
 			gt_future_map = get_patch(gt_template, gt_future.reshape(-1, 2).cpu().numpy(), H, W)
 			gt_future_map = torch.stack(gt_future_map).reshape([-1, pred_len, H, W])
 
-			gt_waypoints = gt_future[:, params['waypoints']]
+			gt_waypoints = gt_future[:,params['waypoints']]
 			gt_waypoint_map = get_patch(input_template, gt_waypoints.reshape(-1, 2).cpu().numpy(), H, W)
 			gt_waypoint_map = torch.stack(gt_waypoint_map).reshape([-1, gt_waypoints.shape[1], H, W])
 
-			feature_input = observed_map
-
+			feature_input = torch.cat([combined_gaussian_maps, observed_map], dim=1)
 			# Forward pass
 			# Calculate features
 			features = model.pred_features(feature_input)
@@ -90,12 +118,6 @@ def train(model, train_loader, train_images, e, obs_len, pred_len, batch_size, p
 				# Evaluate using Softargmax, not a very exact evaluation but a lot faster than full prediction
 				pred_traj = model.softargmax(pred_traj_map)
 				pred_goal = model.softargmax(pred_goal_map[:, -1:])
-
-				# converts ETH/UCY pixel coordinates back into world-coordinates
-				# if dataset_name == 'eth':
-				# 	pred_goal = image2world(pred_goal, scene, homo_mat, params)
-				# 	pred_traj = image2world(pred_traj, scene, homo_mat, params)
-				# 	gt_future = image2world(gt_future, scene, homo_mat, params)
 
 				train_ADE.append(((((gt_future - pred_traj) / params['resize']) ** 2).sum(dim=2) ** 0.5).mean(dim=1))
 				train_FDE.append(((((gt_future[:, -1:] - pred_goal[:, -1:]) / params['resize']) ** 2).sum(dim=2) ** 0.5).mean(dim=1))

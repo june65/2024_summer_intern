@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
-from utils.image_utils import get_patch, sampling, image2world
+from utils.image_utils import get_patch, sampling, image2world,  create_gaussian_map, combine_gaussian_maps
 from utils.kmeans import kmeans
-
 
 def torch_multivariate_gaussian_heatmap(coordinates, H, W, dist, sigma_factor, ratio, device, rot=False):
 	"""
@@ -75,16 +74,36 @@ def evaluate(model, val_loader, val_images, num_goals, num_traj, obs_len, batch_
 			for i in range(0, len(trajectory), batch_size):
 				# Create Heatmaps for past and ground-truth future trajectories
 				_, _, H, W = scene_image.shape
-				observed = trajectory[i:i+batch_size, :obs_len, :].reshape(-1, 2).cpu().numpy()
+				observed = trajectory[i, :obs_len, :].reshape(-1, 2).cpu().numpy()
 				observed_map = get_patch(input_template, observed, H, W)
 				observed_map = torch.stack(observed_map).reshape([-1, obs_len, H, W])
 
-				gt_future = trajectory_trgt[i:i + batch_size, :].to(device)
-				semantic_image = scene_image.expand(observed_map.shape[0], -1, -1, -1)
+				gaussian_maps = []
+				for j in range(len(trajectory)):
+					lengths =((trajectory[i,:,0] - trajectory[j,:,0])**2 + (trajectory[i,:,1] - trajectory[j,:,1])**2).sqrt()
+					length = lengths.mean()
+					if j == i:
+						gaussian_maps.append([])
+					elif length< 20:
+						gaussian_maps.append([])
+					observed = trajectory[j, :, :].reshape(-1, 2).cpu().numpy()
+					gaussian_map = create_gaussian_map(observed, H, W)
+					gaussian_maps.append(gaussian_map)
+				combined_gaussian_maps = []	
+
+				for k in range(obs_len):
+					combined_gaussian_map = combine_gaussian_maps([gaussian_maps[j][k] for j in range(len(trajectory)) if len(gaussian_maps[j]) != 0], H, W)
+					combined_gaussian_maps.append(combined_gaussian_map)
+				
+				combined_gaussian_maps = torch.tensor(combined_gaussian_maps).reshape([-1, obs_len, H, W])
+				combined_gaussian_maps = combined_gaussian_maps.float()
+				combined_gaussian_maps = combined_gaussian_maps.to(device)
+				
+				gt_future = trajectory_trgt[i].unsqueeze(0).to(device)
 
 				# Forward pass
 				# Calculate features
-				feature_input = torch.cat([observed_map], dim=1)
+				feature_input = torch.cat([combined_gaussian_maps, observed_map], dim=1)
 				features = model.pred_features(feature_input)
 
 				# Predict goal and waypoint probability distributions

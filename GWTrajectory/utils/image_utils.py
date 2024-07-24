@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import cv2
 import torch.nn.functional as F
+from torch.distributions import Categorical, Normal, Independent, MixtureSameFamily
 
 def gkern(kernlen=31, nsig=4):
 	"""	creates gaussian kernel with side length l and a sigma of sig """
@@ -136,12 +137,47 @@ def image2world(image_coords, scene, homo_mat, resize):
 	traj_image2world = traj_image2world.view_as(image_coords)
 	return traj_image2world
 
-def create_gaussian_map(traj, H, W, sigma=10):
 
-	x0 = np.round(traj[:,0]).astype('int')
-	y0 = np.round(traj[:,1]).astype('int')
-	x = np.arange(0, W, 1, float)
-	y = np.arange(0, H, 1, float)[:, np.newaxis]
-	gaussian = np.exp(-4 * np.log(2) * ((x - x0)**2 + (y - y0)**2) / sigma**2)
+def create_gaussian_map(traj, H, W, sigma=50):
+    x0 = np.round(traj[:, 0]).astype('int')
+    y0 = np.round(traj[:, 1]).astype('int')
+
+    x = np.arange(0, W, 1, float)
+    y = np.arange(0, H, 1, float)
+    xx, yy = np.meshgrid(x, y)
+    gaussian_maps = []
+    
+    for x_center, y_center in zip(x0, y0):
+        gaussian = np.exp(-4 * np.log(2) * ((xx - x_center)**2 + (yy - y_center)**2) / sigma**2)
+        gaussian_maps.append(gaussian)
+
+    return gaussian_maps
+
+def combine_gaussian_maps(gaussian_maps, H, W, sigma=50, n_samples=100):
+	combined_map = np.zeros((H, W))
+
+	for gaussian_map in gaussian_maps:
+		combined_map += np.array(gaussian_map)
+
+	combined_map = combined_map / len(gaussian_maps)
+	max_value = combined_map.max()
+
+	if max_value > 0:
+		combined_map = combined_map / max_value
 	
-	return gaussian
+	'''
+    centers = np.array([np.unravel_index(np.argmax(gaussian_map, axis=None), gaussian_map.shape) for gaussian_map in gaussian_maps])
+    mix = Categorical(torch.ones(len(centers)) / len(centers))
+    comp = Independent(Normal(torch.tensor(centers).float(), sigma * torch.ones(len(centers), 2)), 1)
+    gmm = MixtureSameFamily(mix, comp)
+    
+    samples = gmm.sample((n_samples,))
+    for sample in samples:
+        center_x, center_y = sample.numpy()
+        additional_gaussian_map = create_gaussian_map(np.array([[center_x, center_y]]), H, W, sigma)[0]
+        combined_map += additional_gaussian_map
+    
+    combined_map = combined_map / (len(gaussian_maps) + n_samples)
+	'''
+
+	return combined_map

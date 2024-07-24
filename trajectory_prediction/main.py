@@ -262,7 +262,7 @@ parser.add_argument('--pred_seq_len', type=int, default=12)
 
 # Training parameters
 parser.add_argument('--batch_size', type=int, default=128, help='Mini batch size')
-parser.add_argument('--num_epochs', type=int, default=512, help='Number of epochs')
+parser.add_argument('--num_epochs', type=int, default=256, help='Number of epochs')
 parser.add_argument('--clip_grad', type=float, default=None, help='Gradient clipping')
 parser.add_argument('--lr', type=float, default=0.0001, help='Learning rate')
 parser.add_argument('--lr_sh_rate', type=int, default=128, help='Number of steps to drop the lr')

@@ -135,3 +135,13 @@ def image2world(image_coords, scene, homo_mat, resize):
 	traj_image2world = traj_image2world[:, :2]
 	traj_image2world = traj_image2world.view_as(image_coords)
 	return traj_image2world
+
+def create_gaussian_map(traj, H, W, sigma=10):
+
+	x0 = np.round(traj[:,0]).astype('int')
+	y0 = np.round(traj[:,1]).astype('int')
+	x = np.arange(0, W, 1, float)
+	y = np.arange(0, H, 1, float)[:, np.newaxis]
+	gaussian = np.exp(-4 * np.log(2) * ((x - x0)**2 + (y - y0)**2) / sigma**2)
+	
+	return gaussian

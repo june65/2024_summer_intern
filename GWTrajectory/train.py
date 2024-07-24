@@ -21,38 +21,38 @@ def train(model, train_loader, train_images, e, obs_len, pred_len, batch_size, p
 	model.train()
 	counter = 0
 	# outer loop, for loop over each scene as scenes have different image size and to calculate segmentation only once
-	for batch, (trajectory, meta, scene) in enumerate(train_loader):
+	for batch_idx , (scene, batch) in enumerate(train_loader):
 		# Stop training after 25 batches to increase evaluation frequency
-		if dataset_name == 'sdd' and obs_len == 8 and batch > 25:
+		if dataset_name == 'sdd' and obs_len == 8 and batch_idx > 25:
 			break
-
-		# TODO Delete
-		if dataset_name == 'eth':
-			print(counter)
-			counter += batch_size
-			# Break after certain number of batches to approximate evaluation, else one epoch takes really long
-			if counter > 30: #TODO Delete
-				break
 
 		# Get scene image and apply semantic segmentation
 		if e < params['unfreeze']:  # before unfreeze only need to do semantic segmentation once
 			model.eval()
-			scene_image = train_images[scene].to(device).unsqueeze(0)
+			scene_image = train_images[scene[0]].to(device).unsqueeze(0)
 			model.train()
-
 		# inner loop, for each trajectory in the scene
+
+		S_obs, S_trgt = [tensor.cuda() for tensor in batch[-2:]]
+		
+		trajectory = S_obs[0,0,:,:,:]
+		trajectory = trajectory.permute(1, 0, 2).contiguous()
+		trajectory_trgt = S_trgt[0,0,:,:,:]
+		trajectory_trgt = trajectory_trgt.permute(1, 0, 2).contiguous()
+
 		for i in range(0, len(trajectory), batch_size):
+			
 			if e >= params['unfreeze']:
 				scene_image = train_images[scene].to(device).unsqueeze(0)
 
 			# Create Heatmaps for past and ground-truth future trajectories
 			_, _, H, W = scene_image.shape  # image shape
 
-			observed = trajectory[i:i+batch_size, :obs_len, :].reshape(-1, 2).cpu().numpy()
+			observed = trajectory[i:i+batch_size, :, :].reshape(-1, 2).cpu().numpy()
 			observed_map = get_patch(input_template, observed, H, W)
 			observed_map = torch.stack(observed_map).reshape([-1, obs_len, H, W])
 
-			gt_future = trajectory[i:i + batch_size, obs_len:].to(device)
+			gt_future = trajectory_trgt[i:i + batch_size, :].to(device)
 			gt_future_map = get_patch(gt_template, gt_future.reshape(-1, 2).cpu().numpy(), H, W)
 			gt_future_map = torch.stack(gt_future_map).reshape([-1, pred_len, H, W])
 

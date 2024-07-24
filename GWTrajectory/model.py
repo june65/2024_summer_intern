@@ -9,7 +9,7 @@ from utils.softargmax import SoftArgmax2D, create_meshgrid
 from utils.preprocessing import augment_data, create_images_dict
 from utils.image_utils import create_gaussian_heatmap_template, create_dist_mat, \
 	preprocess_image_for_segmentation, pad, resize
-from utils.dataloader import SceneDataset, scene_collate
+from utils.dataloader import SceneDataset
 from test import evaluate
 from train import train
 
@@ -260,11 +260,11 @@ class YNet:
 		val_images = create_images_dict(val_data, image_path=val_image_path, image_file=image_file_name)
 
 		# Initialize dataloaders
-		train_dataset = SceneDataset(df_train, resize=params['resize'], total_len=total_len)
-		train_loader = DataLoader(train_dataset, batch_size=1, collate_fn=scene_collate, shuffle=True)
+		train_dataset = SceneDataset(df_train, resize=params['resize'],obs_len=8, pred_len=12 ,skip=1, threshold=0.002, min_ped=1)
+		train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=0, pin_memory=True)
 
-		val_dataset = SceneDataset(val_data, resize=params['resize'], total_len=total_len)
-		val_loader = DataLoader(val_dataset, batch_size=1, collate_fn=scene_collate)
+		val_dataset = SceneDataset(val_data, resize=params['resize'], obs_len=8, pred_len=12 ,skip=1, threshold=0.002, min_ped=1)
+		val_loader = DataLoader(val_dataset, batch_size=1,num_workers=0, pin_memory=True)
 
 		# Preprocess images, in particular resize, pad and normalize as semantic segmentation backbone requires
 		resize(train_images, factor=params['resize'], seg_mask=seg_mask)
@@ -366,7 +366,7 @@ class YNet:
 		test_images = create_images_dict(data, image_path=image_path, image_file=image_file_name)
 
 		test_dataset = SceneDataset(data, resize=params['resize'], total_len=total_len)
-		test_loader = DataLoader(test_dataset, batch_size=1, collate_fn=scene_collate)
+		test_loader = DataLoader(test_dataset, batch_size=1, num_workers=0, pin_memory=True)
 
 		# Preprocess images, in particular resize, pad and normalize as semantic segmentation backbone requires
 		resize(test_images, factor=params['resize'], seg_mask=seg_mask)

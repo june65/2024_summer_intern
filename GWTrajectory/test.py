@@ -62,17 +62,15 @@ def evaluate(model, val_loader, val_images, num_goals, num_traj, obs_len, batch_
 	counter = 0
 	with torch.no_grad():
 		# outer loop, for loop over each scene as scenes have different image size and to calculate segmentation only once
-		for trajectory, meta, scene in val_loader:
+		for scene, batch in val_loader:
 			# Get scene image and apply semantic segmentation
-			scene_image = val_images[scene].to(device).unsqueeze(0)
-			scene_image = model.segmentation(scene_image)
-
-			if dataset_name == 'eth':
-				print(counter)
-				counter += batch_size
-				# Break after certain number of batches to approximate evaluation, else one epoch takes really long
-				if counter > 30 and mode == 'val':
-					break
+			S_obs, S_trgt = [tensor.cuda() for tensor in batch[-2:]]
+			scene_image = val_images[scene[0]].to(device).unsqueeze(0)
+			
+			trajectory = S_obs[0,0,:,:,:]
+			trajectory = trajectory.permute(1, 0, 2).contiguous()
+			trajectory_trgt = S_trgt[0,0,:,:,:]
+			trajectory_trgt = trajectory_trgt.permute(1, 0, 2).contiguous()
 
 			for i in range(0, len(trajectory), batch_size):
 				# Create Heatmaps for past and ground-truth future trajectories
@@ -81,12 +79,12 @@ def evaluate(model, val_loader, val_images, num_goals, num_traj, obs_len, batch_
 				observed_map = get_patch(input_template, observed, H, W)
 				observed_map = torch.stack(observed_map).reshape([-1, obs_len, H, W])
 
-				gt_future = trajectory[i:i+batch_size, obs_len:].to(device)
+				gt_future = trajectory_trgt[i:i + batch_size, :].to(device)
 				semantic_image = scene_image.expand(observed_map.shape[0], -1, -1, -1)
 
 				# Forward pass
 				# Calculate features
-				feature_input = torch.cat([semantic_image, observed_map], dim=1)
+				feature_input = torch.cat([observed_map], dim=1)
 				features = model.pred_features(feature_input)
 
 				# Predict goal and waypoint probability distributions
@@ -203,12 +201,6 @@ def evaluate(model, val_loader, val_images, num_goals, num_traj, obs_len, batch_
 				future_samples = torch.stack(future_samples)
 
 				gt_goal = gt_future[:, -1:]
-
-				# converts ETH/UCY pixel coordinates back into world-coordinates
-				if dataset_name == 'eth':
-					waypoint_samples = image2world(waypoint_samples, scene, homo_mat, resize)
-					pred_traj = image2world(pred_traj, scene, homo_mat, resize)
-					gt_future = image2world(gt_future, scene, homo_mat, resize)
 
 				val_FDE.append(((((gt_goal - waypoint_samples[:, :, -1:]) / resize) ** 2).sum(dim=3) ** 0.5).min(dim=0)[0])
 				val_ADE.append(((((gt_future - future_samples) / resize) ** 2).sum(dim=3) ** 0.5).mean(dim=2).min(dim=0)[0])

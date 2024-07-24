@@ -4,18 +4,16 @@ import argparse
 import torch
 from model import YNet
 
-
-
-CONFIG_FILE_PATH = './config/sdd_longterm.yaml'  # yaml config file containing all the hyperparameters
+CONFIG_FILE_PATH = './config/sdd_trajnet.yaml'  # yaml config file containing all the hyperparameters
 EXPERIMENT_NAME = 'sdd_longterm'  # arbitrary name for this experiment
 DATASET_NAME = 'sdd'
 
-TRAIN_DATA_PATH = './data/SDD/train_longterm.pkl'
+TRAIN_DATA_PATH = './data/SDD/train_trajnet.pkl'
 TRAIN_IMAGE_PATH = './data/SDD/train'
-VAL_DATA_PATH = './data/SDD/test_longterm.pkl'
+VAL_DATA_PATH = './data/SDD/test_trajnet.pkl'
 VAL_IMAGE_PATH = './data/SDD/test'
-OBS_LEN = 5  # in timesteps
-PRED_LEN = 30  # in timesteps
+OBS_LEN = 8  # in timesteps
+PRED_LEN = 12  # in timesteps
 NUM_GOALS = 20  # K_e
 NUM_TRAJ = 1  # K_a
 

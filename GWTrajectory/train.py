@@ -28,10 +28,10 @@ def train(model, train_loader, train_images, e, obs_len, pred_len, batch_size, p
 			break
 
 		# Get scene image and apply semantic segmentation
-		if e < params['unfreeze']:  # before unfreeze only need to do semantic segmentation once
-			model.eval()
-			scene_image = train_images[scene[0]].to(device).unsqueeze(0)
-			model.train()
+		#if e < params['unfreeze']:  # before unfreeze only need to do semantic segmentation once
+		model.eval()
+		scene_image = train_images[scene[0]].to(device).unsqueeze(0)
+		model.train()
 		# inner loop, for each trajectory in the scene
 
 		S_obs, S_trgt = [tensor.cuda() for tensor in batch[-2:]]
@@ -42,8 +42,8 @@ def train(model, train_loader, train_images, e, obs_len, pred_len, batch_size, p
 		trajectory_trgt = trajectory_trgt.permute(1, 0, 2).contiguous()
 
 		for i in range(0, len(trajectory), batch_size):
-			if e >= params['unfreeze']:
-				scene_image = train_images[scene].to(device).unsqueeze(0)
+			#if e >= params['unfreeze']:
+			#	scene_image = train_images[scene].to(device).unsqueeze(0)
 
 			# Create Heatmaps for past and ground-truth future trajectories
 			_, _, H, W = scene_image.shape  # image shape
@@ -70,13 +70,13 @@ def train(model, train_loader, train_images, e, obs_len, pred_len, batch_size, p
 			combined_gaussian_maps = torch.tensor(combined_gaussian_maps).reshape([-1, obs_len, H, W])
 			combined_gaussian_maps = combined_gaussian_maps.float()
 			combined_gaussian_maps = combined_gaussian_maps.to(device)
-			'''	
+				
 			selected_gaussian = combined_gaussian_maps[0, 0].cpu().numpy()
 			plt.imshow(selected_gaussian, cmap='hot', interpolation='nearest')
 			plt.title(f'Gaussian Map')
 			plt.colorbar()
 			plt.show()
-			'''
+			
 			observed = trajectory[i, :, :].reshape(-1, 2).cpu().numpy()
 			observed_map = get_patch(input_template, observed, H, W)
 			observed_map = torch.stack(observed_map).reshape([-1, obs_len, H, W])

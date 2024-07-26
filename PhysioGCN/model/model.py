@@ -228,6 +228,7 @@ class graph_tern(nn.Module):
         Acc_pred = torch.zeros(V_pred.shape, device='cuda')
         Acc_pred[:, 1:, :, :] = V_pred[:, 1:, :, :] - V_pred[:, :-1, :, :]
         V_pred_abs = (V_pred.cumsum(dim=1) + V_obs_abs.squeeze(dim=0)[-1, :, :]).detach().clone()
+        
         #torch.Size([40, 12, v, 2])
 
         # repeat to sampled times (batch size)

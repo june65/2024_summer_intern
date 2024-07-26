@@ -54,9 +54,7 @@ class SceneDataset(Dataset):
 
 
 		for meta_id, meta_df in tqdm(data.groupby('sceneId', as_index=False), desc='Prepare Dataset'):
-			meta_df = meta_df.head(1000)
-			#########데이터 로딩 시간
-			
+					
 			meta_df['x'] = meta_df['x'] * resize
 			meta_df['y'] = meta_df['y'] * resize
 
